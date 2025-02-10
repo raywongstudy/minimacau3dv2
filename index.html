@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title> Mini Macau 3D </title>
+    <script src="https://kit.fontawesome.com/fdebb7a589.js" crossorigin="anonymous"></script>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <!-- <link href="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.js"></script> -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.12.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.12.0/mapbox-gl.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+	<!-- <script src="https://api.minimacau3d.com/demo/xthree.js" type="text/javascript"></script>  -->
+    
+    <!-- 下面兩條新加Three Box -->
+    <!-- <script src="https://cdn.jsdelivr.net/gh/jscastro76/threebox@v.2.2.2/dist/threebox.min.js" type="text/javascript"></script>
+    <link href="https://cdn.jsdelivr.net/gh/jscastro76/threebox@v.2.2.2/dist/threebox.css" rel="stylesheet"> -->
+
+    <script src="data/route_info_data.js"></script>  <!-- route_info_data  *use in other place*  -->
+    <script src="data/bus_coordinates.js"></script> <!--traffic_data -->
+    <script src="data/station_coordinates.js"></script><!--  station_data -->
+    <script src="data/real_time_camera_data.js"></script> <!-- camera_data -->
+    
+    <!-- 加入Support 功能 -->
+    <script src="./script/tools/support.js"></script> <!-- 通用function -->
+    <!-- 加入網站延申 功能 -->
+    <script src="./script/AddBusFunctions.js"></script>
+    <!-- 加入網站功能 -->
+    <script src="./script/routeFunction.js"></script>
+    <script src="./script/Add3DFunction.js"></script>
+    <script src="./script/AddStationInfo.js"></script>
+    <script src="./script/AddCameraData.js"></script>
+    <script src="./script/GetUserGps.js"></script> 
+    <script src="./script/AddBusInMap.js"></script> 
+    <script src="./script/AddCarPlay.js"></script>   
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body onload="startClock()">
+    <!-- Load the `mapbox-gl-geocoder` plugin. -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js"></script>
+    <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css" type="text/css">
+    
+    <div id="map"></div> 
+    <!-- <div id="current-time-box" style="display:none"> -->
+    
+    <div id="current-time-box">
+            <div id="current-date">2023年1月1日</div>
+        <div id="current-time">12:00:00</div>
+    </div>
+
+    <div id="map_panel">
+        <!-- Add Station Info -->
+        <a id="toggle-station-button" class="panel_button"> 
+            <i class="fa-solid fa-location-dot"></i> 
+        </a>
+        <!-- Add Route Info -->
+        <a id="toggle-route-button" class="panel_button"> 
+            <i class="fa-solid fa-route"></i>
+        </a>
+        <!-- Add Demo Info -->
+        <a id="demo-data-button" class="panel_button"> 
+            <i class="fa-solid fa-floppy-disk"></i>
+        </a>
+
+    </div>
+    
+
+    
+    <script type="module"> // 因设置module为全局变量(window.map)，但在同一个模块作用域内，我们仍然可以直接使用map变量
+        // import { AddBusInMap } from './script/addBusInMap/main.js'; //新方式，未開始用
+
+        mapboxgl.accessToken = 'pk.eyJ1IjoiZXRlcm5pdHkteHlmIiwiYSI6ImNqaDFsdXIxdTA1ODgycXJ5czdjNmF0ZTkifQ.zN7e588TqZOQMWfws-K0Yw';
+        // 设置为全局变量
+        window.map = new mapboxgl.Map({
+            container: 'map',
+            // Choose from Mapbox's core styles, or make your own style with Mapbox Studio
+            // style: 'mapbox://styles/mapbox/streets-v12',
+            style: 'mapbox://styles/mapbox/dark-v11',
+            attributionControl: false,
+            center: ['113.54884000', '22.16185000'], // need to change Add Bus In Map
+            zoom: 12.5,
+            pitch: 30
+        });
+        // Add search box
+        map.addControl(
+            new MapboxGeocoder({
+            accessToken: mapboxgl.accessToken,
+            mapboxgl: mapboxgl
+            })
+        );
+        // 设置为全局变量
+        window.trafficIds;
+        // Add Main Function 
+        map.on('load', () => {
+            // Add Full Screen Control
+            map.addControl(new mapboxgl.FullscreenControl());
+            // Add 3D buildings and remove label layers to enhance the map
+            Add3DFunction(map);
+
+            // Add Route to Map
+            window.trafficIds = addRouteToMap(map, traffic_data,[]); //addRouteToMap(map, traffic_data,["00N1A","00N1B"]); 
+            console.log("traffic_data:",traffic_data)
+            // Add all bus to the map 
+            // "https://api.minimacau3d.com/bus_location_coordinates.json" // 生產數據
+            // "https://api.minimacau3d.com/bus_location_coordinates_test.json" //測試數據
+            //AddBusInMap(map,[], "http://127.0.0.1:5000/bus_location_data", traffic_data); // AddBusInMap(map,["1","2"]);
+            // AddBusInMap(map,[], "http://127.0.0.1:5000/bus_location_data"); // AddBusInMap(map,["1","2"]);
+           
+            // Add car to the map for play
+            // AddCarPlay(map);
+
+            // Add Camera location Info to Map
+            AddCameraData(map,real_time_camera_data); // 
+
+            // Add Station Info to Map
+            AddStationInfo(map,station_data,[]); // AddStationInfo(map,station_data,["1","2"]);
+
+            // Get User Gps and Show the location 
+            // getAndShowUserGps(map);
+
+        });            
+
+
+
+    </script>
+
+</body>
+
+<script src="./script.js"></script>
+
+</html>
