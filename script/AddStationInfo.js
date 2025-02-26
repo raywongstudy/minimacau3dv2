@@ -1,4 +1,6 @@
 function AddStationInfo(map, station_data,filter_bus_lists = []) {
+    // 显示站点按钮
+    window.showMapButton('toggle-station-button');
 
     if(filter_bus_lists.length != 0){
         let filterValues = filter_bus_lists; // This is the array of values you want to filter by //e.g ["1", "1A"]
@@ -91,48 +93,36 @@ function AddStationInfo(map, station_data,filter_bus_lists = []) {
     });
  
 
-    this.closePopupTESTWithTimeout = () => {
-        popupTESTCloseTimeout = setTimeout(() => popup.remove(), 2000);
-    }
-    
-    clearPopupTESTCloseTimeout = () => {
-        console.log('run this.clearPopupTESTCloseTimeout ------')
-        console.log(popupTESTCloseTimeout)
-
-        if (popupTESTCloseTimeout) {
-          clearTimeout(popupTESTCloseTimeout);
-          popupTESTCloseTimeout = null;
-        }
-    }
-
-    popupTESTCloseTimeout = null 
     map.on('mouseenter', `bus_station`, (e) => {
-        // Change the cursor style as a UI indicator.
         map.getCanvas().style.cursor = 'pointer';
-        // Copy coordinates array.
-        // this.clearPopupTESTCloseTimeout();
         const coordinates = e.features[0].geometry.coordinates.slice();
         const description = e.features[0].properties.description;
 
-        // Ensure that if the map is zoomed out such that multiple
-        // copies of the feature are visible, the popup appears
-        // over the copy being pointed to.
         while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
             coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
         }
 
-        // Populate the popup and set its coordinates
-        // based on the feature found.
         popup.setLngLat(coordinates).setHTML(description).addTo(map);
     });
 
     map.on('mouseleave', 'bus_station', () => {
         map.getCanvas().style.cursor = '';
-
-        console.log('Mouseleave ~~~~~')
-        this.closePopupTESTWithTimeout();
+        
+        setTimeout(() => {
+            const popupElement = document.getElementsByClassName('mapboxgl-popup')[0];
+            if (popupElement && !popupElement.matches(':hover')) {
+                popup.remove();
+            }
+        }, 100);
     });
 
-    
+    map.on('mouseenter', 'bus_station', () => {
+        const popupElement = document.getElementsByClassName('mapboxgl-popup')[0];
+        if (popupElement) {
+            popupElement.addEventListener('mouseleave', () => {
+                popup.remove();
+            });
+        }
+    });
 
 }
