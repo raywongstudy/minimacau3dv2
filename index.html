@@ -135,26 +135,26 @@
             Add3DFunction(map);
 
             // 2. Add Route to Map 
-            // window.trafficIds = addRouteToMap(map, traffic_data,["0001A","00001"]); //addRouteToMap(map, traffic_data,["00N1A","00N1B"]); 
-            window.trafficIds = addRouteToMap(map, traffic_data,[]); //addRouteToMap(map, traffic_data,["00N1A","00N1B"]); 
+            // window.trafficIds = addRouteToMap(map, traffic_data,[]); //addRouteToMap(map, traffic_data,["00N1A","00N1B"]); 
             console.log("路線的數據->traffic_data:",traffic_data)
             // 3. Add all bus to the map 
             // "https://api.minimacau3d.com/bus_location_coordinates.json" // 生產數據
             // "https://api.minimacau3d.com/bus_location_coordinates_test.json" //測試數據
             // AddBusInMap(map,["1","1A"], "http://127.0.0.1:5000/bus_data", traffic_data); // AddBusInMap(map,["1","2"]);
-            AddBusInMap(map,[], "https://api.minimacau3d.com/bus_location_data", traffic_data); // AddBusInMap(map,["1","2"]);
+            // AddBusInMap(map,[], "http://127.0.0.1:5000/bus_location_data", traffic_data); // AddBusInMap(map,["1","2"]);
             
             // 4. Add car to the map for play
             // AddCarPlay(map);
 
             // 5. Add Camera location Info to Map
-            AddCameraData(map,real_time_camera_data); // 
+            // AddCameraData(map,real_time_camera_data); // 
 
             // 6. Add Station Info to Map
-            AddStationInfo(map,station_data,[]); // AddStationInfo(map,station_data,["1","2"]);
+            //AddStationInfo(map, "http://127.0.0.1:5000/bus_info", station_data,[]); // AddStationInfo(map,station_data,["1","2"]);
+            AddStationInfo(map, "https://api.minimacau3d.com/bus_info", station_data,[]); // AddStationInfo(map,station_data,["1","2"]);
 
             // 7. Get User Gps and Show the location 
-            getAndShowUserGps(map);
+            // getAndShowUserGps(map);
 
         });            
     </script>
