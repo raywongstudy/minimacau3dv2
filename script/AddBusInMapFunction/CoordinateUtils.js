@@ -1,3 +1,5 @@
+import { AddMarker } from './../tools/support.js';
+
 /**
  * 座標計算工具模組
  * 主要功能：
@@ -92,6 +94,9 @@ export function getPointsInTrafficData(layer, newBusInfo, bus_name, bus_dir, cur
     bus_name = bus_name.toString().padStart(5, '0');    
     // 根據距離動態計算幀數，並加入速度因子 // ！！真實行駛時間 ≈ 距離 ÷ 速率
     const distance = turf.distance(currentLngLat, targetLngLat); // 計算兩點之間的距離 输出單位：米
+    // console.log("currentLngLat:", currentLngLat);
+    // console.log("targetLngLat:", targetLngLat);
+    // console.log("distance:", distasnce);
     
     let animation_number = Math.max(200, Math.min(500, Math.floor(distance * 1000))); //200 - 500 之間 //每公里加1000
     // 根據巴士速度調整動畫幀數，速度越快幀數越少
@@ -102,14 +107,14 @@ export function getPointsInTrafficData(layer, newBusInfo, bus_name, bus_dir, cur
         // 根據巴士低速情況(<40km/h)增加動畫幀數，最多增加150幀，確保動畫流暢度
         animation_number = animation_number + Math.min(200, Math.floor((40 - newBusInfo.speed) / 60 * 1000)); 
     }
-    const speedFactor = 3; // 速度倍率
+    const speedFactor = 0.3; // 速度倍率 - 越大動畫速度越慢，巴士移動越慢；越小動畫時間越小，巴士移動越快
     animation_number = Math.floor(animation_number * speedFactor);
 
     // 1. 獲取路線資料
     let route_traffic_data_use = window.traffic_data;
     let routeCoordinates = route_traffic_data_use.find(e => e.routeCode == bus_name && e.direction == bus_dir);
 
-    // 添加錯誤處理 --------------
+    // 添加錯誤處理 -------------- 如果找不到路線數據，才會運行!! 返回一個簡單的直線路徑
     if (!routeCoordinates || !routeCoordinates.coordinate) {
         console.warn(`找不到路線數據: 巴士號=${bus_name}, 方向=${bus_dir}`);
         // 返回一個簡單的直線路徑
@@ -130,37 +135,40 @@ export function getPointsInTrafficData(layer, newBusInfo, bus_name, bus_dir, cur
         const deltaY = (targetPosition[0] - currentPosition[0]) / animation_number;
         const deltaX = (targetPosition[1] - currentPosition[1]) / animation_number;
         
-        return [[deltaY, deltaX], [animation_number]];
+        return [[deltaY, deltaX], [animation_number]]; // 返回deltaPosition, animation_number 直接輸出用
     }
-    // 添加錯誤處理 --------------
-    
-    // 2. 用findClosestIndex 找出currentLngLat, targetLngLat 在routeCoordinates.coordinate 中的index
-    console.log("routeCoordinates:", routeCoordinates);
-    const currentIndex = findClosestIndex(routeCoordinates.coordinate, currentLngLat);
-    const targetIndex = findClosestIndex(routeCoordinates.coordinate, targetLngLat);
-    // console.log("2. currentIndex:", currentIndex);
-    // console.log("2. targetIndex:", targetIndex);
 
-    // 3. 用currentIndex, targetIndex 取得完整路線點位
-    let fullRoadLngLat = routeCoordinates.coordinate.slice(currentIndex, targetIndex + 1);
-    // console.log("3. fullRoadLngLat:", fullRoadLngLat);
+
+    // 使用routeUtils中的getRoutePointsBetweenCoordinates函數獲取路線點位
+    let routePoints = window.routeUtils.getRoutePointsBetweenCoordinates(routeCoordinates, currentLngLat, targetLngLat);
+    let fullRoadLngLat = routePoints;
+    
+    console.log("3. fullRoadLngLat:", fullRoadLngLat);
 
     // 4. 計算所有LngLat的Position
     const currentPosition = calculateDistanceInDirection(parseFloat(currentLngLat[0]),parseFloat(currentLngLat[1]),parseFloat(layer.longitude),parseFloat(layer.latitude));
     const targetPosition = calculateDistanceInDirection(parseFloat(targetLngLat[0]),parseFloat(targetLngLat[1]),layer.longitude,layer.latitude);
     // for loop 計算所有fullRoadLngLat的Position, 要输出array
-    const fullRoadPosition = [];
+    let fullRoadPosition = [];
     for (let i = 0; i < fullRoadLngLat.length; i++) {
         const position = calculateDistanceInDirection(parseFloat(fullRoadLngLat[i][0]),parseFloat(fullRoadLngLat[i][1]),layer.longitude,layer.latitude);
         fullRoadPosition.push(position);
     }
-    fullRoadPosition.unshift(currentPosition); // 將currentPosition插入到fullRoadPosition的最前面
-    fullRoadPosition.push(targetPosition); // 將targetPosition插入到fullRoadPosition的後面
+    // 去除重複的座標點
+    fullRoadPosition = fullRoadPosition.filter((position, index, self) =>
+        index === self.findIndex(p => p[0] === position[0] && p[1] === position[1])
+    );
 
-    // console.log("4. currentPosition:", currentPosition);
-    // console.log("4. targetPosition:", targetPosition);  
+    // fullRoadPosition.unshift(currentPosition); // 將currentPosition插入到fullRoadPosition的最前面
+    // fullRoadPosition.push(targetPosition); // 將targetPosition插入到fullRoadPosition的後面
+
     // console.log("4. fullRoadPosition:", fullRoadPosition);
     
+    // fullRoadLngLat.forEach(point => {
+    //     AddMarker(window.map, point, 'red');
+    // });
+    // AddMarker(window.map, currentLngLat);
+    // AddMarker(window.map, targetLngLat);
     // 5. for loop 計算deltaPosition array
     let deltaPosition = [];
     for (let i = 0; i < fullRoadPosition.length - 1; i++) {
@@ -169,11 +177,12 @@ export function getPointsInTrafficData(layer, newBusInfo, bus_name, bus_dir, cur
         const deltaX = (fullRoadPosition[i + 1][1] - fullRoadPosition[i][1]) / animation_number; // 經度方向上的實際移動距離（米）
         deltaPosition.push([deltaY, deltaX]);
     }
-    // console.log("5. deltaPosition:", deltaPosition);
+    
+    console.log("5. deltaPosition:", deltaPosition); // 每一帧的位置增量 根據 fullRoadPosition的距離和animation_number計算
 
     // 6. animation_number＝for loop fullRoadPosition.length 次數的array
     animation_number = Array(fullRoadPosition.length - 1).fill(animation_number);
-    // console.log("6. animation_number:", animation_number);
+    console.log("6. animation_number:", animation_number); // 動畫幀數
     
     // 7. 返回deltaPosition, animation_number //可選fullRoadLngLat
     return [deltaPosition, animation_number];

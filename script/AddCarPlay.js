@@ -45,7 +45,7 @@ function AddCarPlay(map) {
     function travelPath(destination){
 
         let mapAccessToken =
-        'pk.eyJ1IjoiZXRlcm5pdHkteHlmIiwiYSI6ImNqaDFsdXIxdTA1ODgycXJ5czdjNmF0ZTkifQ.zN7e588TqZOQMWfws-K0Yw';
+        'pk.eyJ1IjoicmF5d29uZ3N0dWR5IiwiYSI6ImNsOTUzaXBmajIzdXczd210a2s5dXM1anoifQ.2bzIw0cqaCbTmmDKP9DOxA';
         // request directions. See https://docs.mapbox.com/api/navigation/#directions for details
 
         var url = "https://api.mapbox.com/directions/v5/mapbox/driving/"+[origin, destination].join(';')+"?geometries=geojson&access_token=" + mapAccessToken

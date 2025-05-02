@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>巴士路線百分比計算演示</title>
+  <!-- 引入Mapbox GL JS -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.12.0/mapbox-gl.css" rel="stylesheet">
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.12.0/mapbox-gl.js"></script>
+  <!-- 引入 Three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+  <!-- 引入自定义CSS -->
+  <link href="routeStyle.css" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <h1>巴士路線百分比計算演示</h1>
+    
+    <div id="loading">正在載入GeoJSON數據...</div>
+    
+    <div id="mainContent" class="hidden">
+      <h2>選擇巴士路線</h2>
+      <div id="routeSelector" class="route-info"></div>
+      
+      <div id="mapContainer" class="result-section">
+        <h2>路線地圖</h2>
+        <div id="map"></div>
+        <div class="map-controls">
+          <div class="form-group">
+            <label for="mapPercentage">百分比位置標記 (0-100):</label>
+            <input type="range" id="mapPercentage" min="0" max="100" value="50" class="percentage-slider">
+            <span id="percentageValue">50%</span>
+            <button id="addMarkerBtn" class="btn">添加標記</button>
+            <button id="clearMarkersBtn" class="btn">清除標記</button>
+            <button id="showAllCoordinatesBtn" class="btn">顯示完整路線</button>
+            <button id="addBusBtn" class="btn bus-btn">添加巴士</button>
+            <button id="clearBusBtn" class="btn bus-btn">清除巴士</button>
+            <button id="toggleBusViewBtn" class="btn bus-btn">隱藏巴士</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label for="percentageInput">指定百分比位置 (0-100):</label>
+        <input type="number" id="percentageInput" min="0" max="100" value="50">
+        <button id="getPointBtn" class="btn">獲取點</button>
+      </div>
+      
+      <div class="form-group">
+        <label for="startPercentage">起始百分比:</label>
+        <input type="number" id="startPercentage" min="0" max="100" value="0">
+        
+        <label for="endPercentage">結束百分比:</label>
+        <input type="number" id="endPercentage" min="0" max="100" value="2">
+        
+        <button id="getRangeBtn" class="btn">獲取範圍</button>
+      </div>
+      
+      <div class="form-group">
+        <label for="incrementInput">百分比增量:</label>
+        <input type="number" id="incrementInput" min="1" max="50" value="2">
+        
+        <button id="getIncrementBtn" class="btn">獲取增量點</button>
+      </div>
+      
+      <div id="routeInfo" class="result-section hidden">
+        <h2>路線信息</h2>
+        <div id="routeInfoContent" class="result-box"></div>
+      </div>
+      
+      <div id="pointResult" class="result-section hidden">
+        <h2>單點結果</h2>
+        <div id="pointResultContent" class="result-box"></div>
+      </div>
+      
+      <div id="rangeResult" class="result-section hidden">
+        <h2>範圍結果</h2>
+        <div id="rangeResultContent" class="result-box"></div>
+      </div>
+      
+      <div id="incrementResult" class="result-section hidden">
+        <h2>增量點結果</h2>
+        <div id="incrementResultContent" class="result-box"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 引入路線工具類 -->
+  <script src="routeUtils.js"></script>
+  
+  <!-- 引入巴士功能 -->
+  <script src="routeBus.js"></script>
+  
+  <!-- 演示腳本 -->
+  <script>
+    // 設置 Mapbox 訪問令牌
+    mapboxgl.accessToken = 'pk.eyJ1IjoicmF5d29uZ3N0dWR5IiwiYSI6ImNsOTUzaXBmajIzdXczd210a2s5dXM1anoifQ.2bzIw0cqaCbTmmDKP9DOxA';
+    
+    // 全局變量
+    let geojsonData = null;
+    let selectedRouteId = null;
+    let selectedRoute = null;
+    let map = null;
+    let routeSource = null;
+    let markersArray = [];
+    let startEndPopups = [];
+    
+    // 初始化
+    document.addEventListener('DOMContentLoaded', function() {
+      // 初始化地圖
+      initMap();
+      
+      // 等待地圖加載完成後加載數據
+      if (map.loaded()) {
+        loadGeoJSONData();
+      } else {
+        map.on('load', function() {
+          loadGeoJSONData();
+        });
+      }
+    });
+    
+    // 初始化地圖
+    function initMap() {
+      // 建立地圖實例，設置中心點為澳門
+      map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/dark-v11',
+        center: [113.542, 22.196],
+        zoom: 14,
+        pitch: 30
+      });
+      
+      // 添加導航控制
+      map.addControl(new mapboxgl.NavigationControl());
+      
+      // 添加比例尺控制
+      map.addControl(new mapboxgl.ScaleControl(), 'bottom-left');
+      
+      // 添加全屏控制
+      map.addControl(new mapboxgl.FullscreenControl());
+      
+      // 地圖加載完成後的事件
+      map.on('load', function() {
+        console.log('地圖已完全加載');
+        
+        // 添加空的GeoJSON源
+        if (!map.getSource('route-source')) {
+          map.addSource('route-source', {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: []
+            }
+          });
+          
+          // 添加路線圖層
+          map.addLayer({
+            id: 'route-layer',
+            type: 'line',
+            source: 'route-source',
+            layout: {
+              'line-join': 'round',
+              'line-cap': 'round'
+            },
+            paint: {
+              'line-color': ['get', 'color'],
+              'line-width': 5,
+              'line-opacity': 0.7
+            }
+          });
+          
+          // 添加起點終點圖層
+          map.addLayer({
+            id: 'endpoints-layer',
+            type: 'circle',
+            source: 'route-source',
+            filter: ['any', ['==', 'point_type', 'start'], ['==', 'point_type', 'end']],
+            paint: {
+              'circle-radius': 8,
+              'circle-color': ['match', ['get', 'point_type'], 'start', '#00ff00', 'end', '#ff0000', '#000000'],
+              'circle-stroke-width': 2,
+              'circle-stroke-color': '#ffffff'
+            }
+          });
+          
+          // 獲取 route-source 引用
+          routeSource = map.getSource('route-source');
+        }
+        
+        // 如果存在巴士控制UI函數，則創建巴士控制面板
+        if (typeof window.createBusControlUI === 'function') {
+          // 使用默認坐標路線，這將在有巴士路線選擇後更新
+          window.busControlUI = window.createBusControlUI(map);
+          console.log('已創建巴士控制面板');
+        }
+      });
+      
+      // 添加資訊面板
+      addInfoPanel();
+    }
+    
+    // 添加信息面板
+    function addInfoPanel() {
+      // 創建信息覆蓋層
+      const infoDiv = document.createElement('div');
+      infoDiv.className = 'map-overlay';
+      infoDiv.id = 'info-overlay';
+      infoDiv.innerHTML = '<h4>路線信息</h4><div id="info-content">請選擇一條路線</div>';
+      
+      // 添加到地圖中
+      document.getElementById('map').appendChild(infoDiv);
+    }
+    
+    // 顯示路線選擇器
+    function displayRouteSelector() {
+      const selectorDiv = document.getElementById('routeSelector');
+      selectorDiv.innerHTML = '';
+      
+      geojsonData.features.forEach(feature => {
+        const { id, bus_number, route_code, color } = feature.properties;
+        
+        const routeCard = document.createElement('div');
+        routeCard.className = 'route-card';
+        routeCard.dataset.id = id;
+        routeCard.innerHTML = `
+          <h3 style="color: ${color || '#333'}">巴士 ${bus_number}</h3>
+          <div>ID: ${id}</div>
+          <div>路線代碼: ${route_code}</div>
+        `;
+        
+        routeCard.addEventListener('click', () => selectRoute(id));
+        
+        selectorDiv.appendChild(routeCard);
+      });
+    }
+    
+    // 選擇路線
+    function selectRoute(routeId) {
+      // 先移除舊的起點終點popup
+      if (startEndPopups && startEndPopups.length > 0) {
+        startEndPopups.forEach(popup => popup.remove());
+        startEndPopups = [];
+      }
+      // 更新選中狀態
+      document.querySelectorAll('.route-card').forEach(card => {
+        card.classList.remove('selected');
+        if (card.dataset.id == routeId) {
+          card.classList.add('selected');
+        }
+      });
+      
+      selectedRouteId = routeId;
+      selectedRoute = geojsonData.features.find(feature => feature.properties.id === parseInt(routeId));
+      
+      // 顯示路線信息
+      displayRouteInfo();
+      
+      // 在地圖上顯示路線
+      displayRouteOnMap();
+      
+      // 更新信息面板
+      updateInfoPanel();
+      
+      // 更新巴士控制UI的路線坐標
+      if (selectedRoute && window.busControlUI && typeof window.createBusControlUI === 'function') {
+        // 移除舊的控制面板
+        if (window.busControlUI.container) {
+          window.busControlUI.container.remove();
+        }
+        
+        // 使用選定路線的坐標創建新的控制面板
+        const coordinates = selectedRoute.geometry.coordinates;
+        window.busControlUI = window.createBusControlUI(map, coordinates, {
+          routeUtils: RouteUtils, // 將 RouteUtils 傳遞給控制面板
+          routeId: selectedRouteId,
+          busNumber: selectedRoute.properties.bus_number
+        });
+        console.log(`已更新巴士控制面板，使用路線 ${selectedRoute.properties.bus_number} 的 ${coordinates.length} 個坐標點`);
+      }
+    }
+    
+    // 更新信息面板
+    function updateInfoPanel() {
+      if (!selectedRoute) return;
+      
+      const infoContent = document.getElementById('info-content');
+      infoContent.innerHTML = `
+        <b>巴士: ${selectedRoute.properties.bus_number}</b><br>
+        路線代碼: ${selectedRoute.properties.route_code}<br>
+        點數: ${selectedRoute.geometry.coordinates.length}
+      `;
+    }
+    
+    // 清除巴士
+    function clearBus() {
+      console.log('清除巴士');
+      
+      // 檢查是否有活動的巴士圖層
+      if (!window.activeBusLayers || window.activeBusLayers.length === 0) {
+        console.log('沒有活動的巴士圖層引用');
+        alert('目前地圖上沒有巴士');
+        return;
+      }
+      
+      // 使用新定義的removeAllBusLayers函數
+      if (typeof window.removeAllBusLayers === 'function') {
+        window.removeAllBusLayers(map);
+        console.log('已使用removeAllBusLayers函數移除所有巴士');
+        
+        // 重設按鈕文字
+        const toggleBtn = document.getElementById('toggleBusViewBtn');
+        if (toggleBtn) {
+          toggleBtn.textContent = '隱藏巴士';
+        }
+        
+        // 顯示提示訊息
+        const infoContent = document.getElementById('info-content');
+        if (infoContent && selectedRoute) {
+          infoContent.innerHTML = `
+            <b>巴士: ${selectedRoute.properties.bus_number}</b><br>
+            路線代碼: ${selectedRoute.properties.route_code}<br>
+            點數: ${selectedRoute.geometry.coordinates.length}<br>
+            <span style="color: green;">✓ 巴士已成功清除</span>
+          `;
+        }
+        
+        return;
+      }
+      
+      // 舊的清除方法（備用）
+      // 獲取所有圖層
+      const layers = map.getStyle().layers;
+      const busLayers = layers.filter(layer => 
+        layer.id && layer.id.startsWith('single_bus_layer_'));
+        
+      if (busLayers.length === 0) {
+        console.log('未找到匹配的巴士圖層');
+        alert('目前地圖上沒有巴士或無法識別巴士圖層');
+        return;
+      }
+      
+      console.log(`找到 ${busLayers.length} 個巴士圖層:`, busLayers.map(l => l.id));
+      
+      // 移除所有巴士圖層
+      for (const layer of busLayers) {
+        try {
+          map.removeLayer(layer.id);
+          console.log(`已移除巴士圖層 ${layer.id}`);
+        } catch (e) {
+          console.error(`移除圖層 ${layer.id} 時出錯:`, e);
+        }
+      }
+      
+      // 移除所有mapboxgl標記
+      const markers = document.querySelectorAll('.mapboxgl-marker');
+      markers.forEach(marker => {
+        marker.remove();
+      });
+      
+      // 重置巴士圖層陣列
+      window.activeBusLayers = [];
+      
+      // 重設按鈕文字
+      const toggleBtn = document.getElementById('toggleBusViewBtn');
+      if (toggleBtn) {
+        toggleBtn.textContent = '隱藏巴士';
+      }
+      
+      // 強制重繪地圖
+      map.triggerRepaint();
+      console.log('已觸發地圖重繪');
+      
+      // 顯示提示訊息
+      const infoContent = document.getElementById('info-content');
+      if (infoContent && selectedRoute) {
+        infoContent.innerHTML = `
+          <b>巴士: ${selectedRoute.properties.bus_number}</b><br>
+          路線代碼: ${selectedRoute.properties.route_code}<br>
+          點數: ${selectedRoute.geometry.coordinates.length}<br>
+          <span style="color: green;">✓ 巴士已成功清除</span>
+        `;
+      }
+    }
+    
+    // 在地圖上顯示路線
+    function displayRouteOnMap() {
+      // 清除之前的標記
+      clearMarkers();
+      
+      if (!selectedRoute) return;
+      
+      // 確保地圖和資源已加載
+      if (!map.loaded()) {
+        console.log('地圖尚未加載完成，稍後再試');
+        setTimeout(() => displayRouteOnMap(), 200);
+        return;
+      }
+      
+      // 確保路線資源已經存在
+      if (!map.getSource('route-source')) {
+        console.log('路線資源尚未準備好，稍後再試');
+        map.on('load', () => {
+          setTimeout(() => displayRouteOnMap(), 100);
+        });
+        return;
+      }
+      
+      const coordinates = selectedRoute.geometry.coordinates;
+      const routeColor = selectedRoute.properties.color || '#3388ff';
+      
+      console.log(`準備顯示路線 ${selectedRoute.properties.bus_number}，包含 ${coordinates.length} 個點`);
+      
+      try {
+        // 創建起點和終點特徵
+        const startPoint = {
+          type: 'Feature',
+          properties: {
+            point_type: 'start',
+            description: '起點 (0%)'
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: coordinates[0]
+          }
+        };
+        
+        const endPoint = {
+          type: 'Feature',
+          properties: {
+            point_type: 'end',
+            description: '終點 (100%)'
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: coordinates[coordinates.length - 1]
+          }
+        };
+        
+        // 更新路線源數據
+        const sourceData = {
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              properties: {
+                color: routeColor
+              },
+              geometry: {
+                type: 'LineString',
+                coordinates: coordinates
+              }
+            },
+            startPoint,
+            endPoint
+          ]
+        };
+        
+        routeSource = map.getSource('route-source');
+        routeSource.setData(sourceData);
+        
+        // 添加起點和終點彈出窗口
+        const startPopup = addPopup(coordinates[0], '起點 (0%)');
+        const endPopup = addPopup(coordinates[coordinates.length - 1], '終點 (100%)');
+        startEndPopups.push(startPopup, endPopup);
+        
+        // 調整地圖視圖以顯示整個路線
+        try {
+          const bounds = coordinates.reduce((bounds, coord) => {
+            return bounds.extend(coord);
+          }, new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]));
+          
+          map.fitBounds(bounds, {
+            padding: 50
+          });
+        } catch (e) {
+          console.error('設置地圖範圍時出錯:', e);
+        }
+        
+        // 顯示默認百分比位置的標記
+        const defaultPercentage = parseInt(document.getElementById('mapPercentage').value);
+        addPercentageMarker(defaultPercentage);
+      } catch (e) {
+        console.error('顯示路線時出錯:', e);
+      }
+    }
+    
+    // 添加彈出窗口
+    function addPopup(coordinates, text) {
+      const popup = new mapboxgl.Popup({
+        closeOnClick: false,
+        closeButton: true
+      })
+        .setLngLat(coordinates)
+        .setHTML(`<strong>${text}</strong>`)
+        .addTo(map);
+      return popup;
+    }
+    
+    // 添加百分比位置標記
+    function addPercentageMarker(percentage) {
+      if (!selectedRoute) return;
+      
+      const coordinates = selectedRoute.geometry.coordinates;
+      const point = RouteUtils.getPointAtPercentage(coordinates, percentage);
+      
+      // 創建標記
+      const markerElement = document.createElement('div');
+      markerElement.style.width = '14px';
+      markerElement.style.height = '14px';
+      markerElement.style.borderRadius = '50%';
+      markerElement.style.backgroundColor = 'red';
+      markerElement.style.border = '2px solid white';
+      
+      // 添加標記到地圖
+      const marker = new mapboxgl.Marker(markerElement)
+        .setLngLat(point)
+        .setPopup(new mapboxgl.Popup().setHTML(`
+          <strong>${percentage}% 位置</strong><br>
+          坐標: [${point[0].toFixed(6)}, ${point[1].toFixed(6)}]
+        `))
+        .addTo(map);
+      
+      // 將標記添加到數組中
+      markersArray.push({
+        percentage,
+        marker,
+        point
+      });
+      
+      return marker;
+    }
+    
+    // 清除所有標記
+    function clearMarkers() {
+      console.log('清除所有標記');
+      
+      // 清除標記
+      markersArray.forEach(item => {
+        // 移除marker
+        item.marker.remove();
+        // 關閉popup（如果有）
+        if (item.marker.getPopup()) {
+          item.marker.getPopup().remove();
+        }
+      });
+      markersArray = [];
+      
+      // 移除完整路線圖層和source
+      if (map && map.getLayer && map.getSource) {
+        try {
+          // 移除坐標點圖層
+          if (map.getLayer('all-coordinates-layer')) {
+            console.log('移除坐標點圖層');
+            map.removeLayer('all-coordinates-layer');
+          }
+          if (map.getSource('all-coordinates')) {
+            console.log('移除坐標點數據源');
+            map.removeSource('all-coordinates');
+          }
+        } catch (error) {
+          console.error('清除圖層時出錯:', error);
+        }
+      }
+      
+      // 更新信息面板
+      updateInfoPanel();
+    }
+    
+    // 顯示路線信息
+    function displayRouteInfo() {
+      if (!selectedRoute) return;
+      
+      const coordinates = selectedRoute.geometry.coordinates; // 路線坐標點數組
+      const { bus_number, route_code } = selectedRoute.properties; // 巴士號和路線代碼
+      
+      // 計算路線總長度
+      const totalLength = RouteUtils.calculateRouteLength(coordinates); // 路線總長度(米)
+      
+      const infoDiv = document.getElementById('routeInfoContent'); // 路線信息顯示區域
+      infoDiv.innerHTML = `
+        <p><strong>巴士號:</strong> ${bus_number}</p>
+        <p><strong>路線代碼:</strong> ${route_code}</p>
+        <p><strong>GPS點數量:</strong> ${coordinates.length}個點</p>
+        <p><strong>路線總長度:</strong> ${(totalLength / 1000).toFixed(2)} 公里</p>
+        <p><strong>起點坐標:</strong> [${coordinates[0][0].toFixed(6)}, ${coordinates[0][1].toFixed(6)}]</p>
+        <p><strong>終點坐標:</strong> [${coordinates[coordinates.length-1][0].toFixed(6)}, ${coordinates[coordinates.length-1][1].toFixed(6)}]</p>
+      `;
+      
+      document.getElementById('routeInfo').classList.remove('hidden');
+    }
+    
+    // 綁定按鈕事件
+    function bindEvents() {
+      // 百分比滑塊事件
+      const percentageSlider = document.getElementById('mapPercentage');
+      const percentageValue = document.getElementById('percentageValue');
+      
+      percentageSlider.addEventListener('input', function() {
+        percentageValue.textContent = this.value + '%';
+      });
+      
+      // 添加標記按鈕
+      document.getElementById('addMarkerBtn').addEventListener('click', function() {
+        const percentage = parseInt(percentageSlider.value);
+        console.log(`準備添加位於 ${percentage}% 位置的標記`);
+        
+        // 檢查是否選擇了路線
+        if (!selectedRoute) {
+          alert('請先選擇一條路線');
+          return;
+        }
+        
+        try {
+          // 添加標記
+          const marker = addPercentageMarker(percentage);
+          
+          // 獲取坐標
+          const coordinates = selectedRoute.geometry.coordinates;
+          if (!coordinates || coordinates.length === 0) {
+            console.error('選擇的路線沒有坐標點');
+            return;
+          }
+          
+          const point = RouteUtils.getPointAtPercentage(coordinates, percentage);
+          
+          // 移動地圖到標記位置
+          map.flyTo({
+            center: point,
+            zoom: 16
+          });
+          
+          // 顯示提示訊息
+          const infoContent = document.getElementById('info-content');
+          infoContent.innerHTML = `
+            <b>標記位置:</b> ${percentage}%<br>
+            經度: ${point[0].toFixed(6)}<br>
+            緯度: ${point[1].toFixed(6)}
+          `;
+          
+          // 延遲彈出標記提示
+          setTimeout(() => { marker.togglePopup(); }, 1000);
+        } catch (error) {
+          console.error('添加標記時出錯:', error);
+          alert(`添加標記時出錯: ${error.message || '未知錯誤'}`);
+        }
+      });
+      
+      // 添加巴士按鈕
+      document.getElementById('addBusBtn').addEventListener('click', function() {
+        const percentage = parseInt(percentageSlider.value);
+        console.log(`準備添加位於 ${percentage}% 位置的巴士`);
+        
+        // 檢查是否選擇了路線
+        if (!selectedRoute) {
+          alert('請先選擇一條路線，然後再添加巴士');
+          return;
+        }
+        
+        try {
+          // 獲取坐標
+          const coordinates = selectedRoute.geometry.coordinates;
+          if (!coordinates || coordinates.length === 0) {
+            console.error('選擇的路線沒有坐標點');
+            return;
+          }
+          
+          const point = RouteUtils.getPointAtPercentage(coordinates, percentage);
+          console.log(`在坐標 [${point[0]}, ${point[1]}] 添加巴士`);
+          
+          // 使用巴士顏色（如果有）
+          let busColor = 0xFF0000; // 使用红色作为默认颜色
+          if (selectedRoute.properties && selectedRoute.properties.color) {
+            // 將顏色字符串轉換為16進制數字
+            const colorStr = selectedRoute.properties.color;
+            if (colorStr && colorStr !== 'null') {
+              busColor = parseInt(colorStr.replace('#', '0x'));
+              console.log(`使用路線顏色: ${colorStr} (${busColor.toString(16)})`);
+            }
+          }
+          
+          // 計算巴士朝向（如果有足夠的點）
+          let initialRotation = 0;
+          if (percentage < 100 && coordinates.length > 1) {
+            const nextPoint = RouteUtils.getPointAtPercentage(coordinates, Math.min(percentage + 5, 100));
+            const dx = nextPoint[0] - point[0];
+            const dy = nextPoint[1] - point[1];
+            initialRotation = Math.atan2(dy, dx);
+            console.log(`計算巴士朝向角度: ${initialRotation.toFixed(2)} 弧度`);
+          }
+          
+          // 添加巴士描述
+          const busInfo = `<strong>巴士 ${selectedRoute.properties.bus_number}</strong><br>位置: ${percentage}%`;
+          
+          // 在指定位置添加巴士
+          const busLayer = AddBusAtMarker(map, point, {
+            color: [0xFF0000, busColor, busColor],
+            direction: 0,
+            routeId: selectedRoute.properties.bus_number || 'bus',
+            initialRotation: initialRotation,
+            height: 30, // 增加高度，讓巴士更明顯
+            busInfo: busInfo
+          });
+          
+          console.log(`巴士已添加 - ID: ${busLayer.id || '未知'}`);
+          
+          // 輸出調試信息
+          console.log('全局activeBusLayers狀態:', window.activeBusLayers ? `共${window.activeBusLayers.length}個圖層` : '空陣列');
+          
+          // 確認巴士圖層是否正確創建
+          if (busLayer && map.getLayer(busLayer.id)) {
+            console.log(`確認巴士圖層已添加到地圖: ${busLayer.id}`);
+          } else {
+            console.error('巴士圖層未正確添加到地圖或ID不匹配');
+            // 列出所有圖層ID
+            const layers = map.getStyle().layers;
+            console.log('當前地圖上的所有圖層:', layers.map(layer => layer.id));
+          }
+          
+          // 更新切換按鈕文字
+          const toggleBtn = document.getElementById('toggleBusViewBtn');
+          if (toggleBtn) {
+            toggleBtn.textContent = '隱藏巴士';
+          }
+          
+          // 移動地圖到巴士位置並放大
+          map.flyTo({
+            center: point,
+            zoom: 19, // 增加缩放级别
+            pitch: 70, // 增加俯角
+            bearing: (initialRotation * 180 / Math.PI) // 根據巴士朝向旋轉地圖
+          });
+          
+          // 強制重繪
+          map.triggerRepaint();
+          
+          // 顯示提示訊息
+          const infoContent = document.getElementById('info-content');
+          infoContent.innerHTML = `
+            ${busInfo}<br>
+            經度: ${point[0].toFixed(6)}<br>
+            緯度: ${point[1].toFixed(6)}<br>
+            巴士已添加到地圖 (高度: 30米)<br>
+            巴士圖層ID: ${busLayer.id || '未知'}
+          `;
+        } catch (error) {
+          console.error('添加巴士時出錯:', error);
+          alert(`添加巴士時出錯: ${error.message || '未知錯誤'}`);
+        }
+      });
+      
+      // 清除標記按鈕
+      document.getElementById('clearMarkersBtn').addEventListener('click', function() {
+        clearMarkers();
+      });
+      
+      // 清除巴士按鈕
+      document.getElementById('clearBusBtn').addEventListener('click', function() {
+        clearBus();
+      });
+      
+      // 顯示完整路線按鈕
+      document.getElementById('showAllCoordinatesBtn').addEventListener('click', function() {
+        if (!selectedRoute) {
+          alert('請先選擇一條路線');
+          return;
+        }
+        
+        // 獲取路線的所有坐標點
+        const coordinates = selectedRoute.geometry.coordinates;
+        
+        // 確保地圖源已經準備好
+        if (!map.getSource('all-coordinates')) {
+          map.addSource('all-coordinates', {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: []
+            }
+          });
+          
+          // 添加坐標點圖層
+          map.addLayer({
+            id: 'all-coordinates-layer',
+            type: 'circle',
+            source: 'all-coordinates',
+            paint: {
+              'circle-radius': 3,
+              'circle-color': '#ff0000',
+              'circle-opacity': 0.7
+            }
+          });
+        }
+        
+        // 為每個坐標創建一個特徵
+        const features = coordinates.map((coord, index) => ({
+          type: 'Feature',
+          properties: {
+            index: index,
+            description: `點 ${index + 1}`
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: coord
+          }
+        }));
+        
+        // 更新源數據
+        map.getSource('all-coordinates').setData({
+          type: 'FeatureCollection',
+          features: features
+        });
+        
+        // 調整地圖視圖以顯示所有點
+        try {
+          const bounds = coordinates.reduce((bounds, coord) => {
+            return bounds.extend(coord);
+          }, new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]));
+          
+          map.fitBounds(bounds, {
+            padding: 50
+          });
+        } catch (e) {
+          console.error('設置地圖範圍時出錯:', e);
+        }
+        
+        console.log(`顯示路線 ${selectedRoute.properties.bus_number} 的所有 ${coordinates.length} 個點`);
+      });
+      
+      // 單點結果
+      const pointResultDiv = document.getElementById('pointResult');
+      const pointResultContent = document.getElementById('pointResultContent');
+      const pointShowBtnId = 'showOnMapBtn';
+      
+      document.getElementById('getPointBtn').addEventListener('click', function() {
+        if (!selectedRoute) {
+          alert('請先選擇一條路線');
+          return;
+        }
+        const percentage = parseFloat(document.getElementById('percentageInput').value);
+        if (isNaN(percentage) || percentage < 0 || percentage > 100) {
+          alert('請輸入有效的百分比值 (0-100)');
+          return;
+        }
+        const coordinates = selectedRoute.geometry.coordinates;
+        const point = RouteUtils.getPointAtPercentage(coordinates, percentage);
+        pointResultContent.innerHTML = `<p><strong>${percentage}% 位置的GPS點:</strong> [${point[0].toFixed(6)}, ${point[1].toFixed(6)}]</p>`;
+        // 移除舊按鈕
+        let oldBtn = document.getElementById(pointShowBtnId);
+        if (oldBtn) oldBtn.remove();
+        // 新增按鈕到輸出框外下方
+        const btn = document.createElement('button');
+        btn.id = pointShowBtnId;
+        btn.className = 'btn';
+        btn.textContent = '在地圖上顯示';
+        pointResultDiv.appendChild(btn);
+        pointResultDiv.classList.remove('hidden');
+        btn.addEventListener('click', function() {
+          clearMarkers();
+          const marker = addPercentageMarker(percentage);
+          map.flyTo({ center: point, zoom: 16 });
+          setTimeout(() => { marker.togglePopup(); }, 1000);
+          document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      });
+      
+      // 範圍結果
+      const rangeResultDiv = document.getElementById('rangeResult');
+      const rangeResultContent = document.getElementById('rangeResultContent');
+      const rangeShowBtnId = 'showRangeOnMapBtn';
+      
+      document.getElementById('getRangeBtn').addEventListener('click', function() {
+        if (!selectedRoute) {
+          alert('請先選擇一條路線');
+          return;
+        }
+        const startPercentage = parseFloat(document.getElementById('startPercentage').value);
+        const endPercentage = parseFloat(document.getElementById('endPercentage').value);
+        if (isNaN(startPercentage) || isNaN(endPercentage) || startPercentage < 0 || startPercentage > 100 || endPercentage < 0 || endPercentage > 100 || startPercentage >= endPercentage) {
+          alert('請輸入有效的百分比範圍');
+          return;
+        }
+        const coordinates = selectedRoute.geometry.coordinates;
+        const points = RouteUtils.getPointsInPercentageRange(coordinates, startPercentage, endPercentage);
+        rangeResultContent.innerHTML = `<p>在 ${startPercentage}% 到 ${endPercentage}% 範圍內共有 ${points.length} 個點:</p><ul>`;
+        const displayPoints = points.length > 10 ? [...points.slice(0, 5), ...points.slice(-5)] : points;
+        const showEllipsis = points.length > 10;
+        displayPoints.forEach((point, index) => {
+          if (showEllipsis && index === 5) {
+            rangeResultContent.innerHTML += `<li>...</li>`;
+          }
+          const actualIndex = points.length > 10 && index >= 5 ? points.length - 10 + index : index;
+          rangeResultContent.innerHTML += `<li>點 ${actualIndex + 1}: [${point[0].toFixed(6)}, ${point[1].toFixed(6)}]</li>`;
+        });
+        rangeResultContent.innerHTML += `</ul>`;
+        // 移除舊按鈕
+        let oldBtn = document.getElementById(rangeShowBtnId);
+        if (oldBtn) oldBtn.remove();
+        // 新增按鈕到輸出框外下方
+        const btn = document.createElement('button');
+        btn.id = rangeShowBtnId;
+        btn.className = 'btn';
+        btn.textContent = '在地圖上顯示';
+        rangeResultDiv.appendChild(btn);
+        rangeResultDiv.classList.remove('hidden');
+        btn.addEventListener('click', function() {
+          clearMarkers();
+          const lnglats = [];
+          points.forEach((point, index) => {
+            const markerElement = document.createElement('div');
+            markerElement.style.width = '8px';
+            markerElement.style.height = '8px';
+            markerElement.style.borderRadius = '50%';
+            markerElement.style.backgroundColor = '#0088ff';
+            markerElement.style.border = '2px solid white';
+            const marker = new mapboxgl.Marker(markerElement)
+              .setLngLat(point)
+              .setPopup(new mapboxgl.Popup().setHTML(`
+                <strong>點 ${index + 1}</strong><br>
+                百分比範圍: ${startPercentage}% - ${endPercentage}%<br>
+                坐標: [${point[0].toFixed(6)}, ${point[1].toFixed(6)}]
+              `))
+              .addTo(map);
+            markersArray.push({ marker, point });
+            lnglats.push(point);
+          });
+          if (lnglats.length > 0) {
+            const bounds = lnglats.reduce((bounds, coord) => {
+              return bounds.extend(coord);
+            }, new mapboxgl.LngLatBounds(lnglats[0], lnglats[0]));
+            map.fitBounds(bounds, { padding: 50 });
+          }
+          document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      });
+      
+      // 增量點結果
+      const incrementResultDiv = document.getElementById('incrementResult');
+      const incrementResultContent = document.getElementById('incrementResultContent');
+      const incrementShowBtnId = 'showIncrementOnMapBtn';
+      
+      document.getElementById('getIncrementBtn').addEventListener('click', function() {
+        if (!selectedRoute) {
+          alert('請先選擇一條路線');
+          return;
+        }
+        const increment = parseFloat(document.getElementById('incrementInput').value);
+        if (isNaN(increment) || increment <= 0 || increment > 50) {
+          alert('請輸入有效的百分比增量 (1-50)');
+          return;
+        }
+        const points = RouteUtils.processGeoJsonRoute(geojsonData, selectedRouteId, increment);
+        incrementResultContent.innerHTML = `<p>使用 ${increment}% 增量採樣共產生 ${points.length} 個點</p>`;
+        incrementResultContent.innerHTML += `<p><strong>前5個採樣點:</strong></p><ul>`;
+        points.slice(0, 5).forEach((point, index) => {
+          incrementResultContent.innerHTML += `<li>點 ${index + 1}: [${point[0].toFixed(6)}, ${point[1].toFixed(6)}]</li>`;
+        });
+        if (points.length > 10) {
+          incrementResultContent.innerHTML += `<li>...</li>`;
+          incrementResultContent.innerHTML += `<p><strong>最後5個採樣點:</strong></p><ul>`;
+          points.slice(-5).forEach((point, index) => {
+            incrementResultContent.innerHTML += `<li>點 ${points.length - 5 + index + 1}: [${point[0].toFixed(6)}, ${point[1].toFixed(6)}]</li>`;
+          });
+        }
+        incrementResultContent.innerHTML += `</ul>`;
+        // 移除舊按鈕
+        let oldBtn = document.getElementById(incrementShowBtnId);
+        if (oldBtn) oldBtn.remove();
+        // 新增按鈕到輸出框外下方
+        const btn = document.createElement('button');
+        btn.id = incrementShowBtnId;
+        btn.className = 'btn';
+        btn.textContent = '在地圖上顯示';
+        incrementResultDiv.appendChild(btn);
+        incrementResultDiv.classList.remove('hidden');
+        btn.addEventListener('click', function() {
+          clearMarkers();
+          for (let i = 0; i <= 100; i += increment) {
+            const point = RouteUtils.getPointAtPercentage(selectedRoute.geometry.coordinates, i);
+            const markerElement = document.createElement('div');
+            markerElement.style.width = '8px';
+            markerElement.style.height = '8px';
+            markerElement.style.borderRadius = '50%';
+            markerElement.style.backgroundColor = '#ff4500';
+            markerElement.style.border = '2px solid white';
+            const marker = new mapboxgl.Marker(markerElement)
+              .setLngLat(point)
+              .setPopup(new mapboxgl.Popup().setHTML(`
+                <strong>${i}% 位置</strong><br>
+                增量: ${increment}%<br>
+                坐標: [${point[0].toFixed(6)}, ${point[1].toFixed(6)}]
+              `))
+              .addTo(map);
+            markersArray.push({ percentage: i, marker, point });
+          }
+          const coordinates = selectedRoute.geometry.coordinates;
+          const bounds = coordinates.reduce((bounds, coord) => {
+            return bounds.extend(coord);
+          }, new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]));
+          map.fitBounds(bounds, { padding: 50 });
+          document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      });
+      
+      // 切換巴士視圖按鈕
+      document.getElementById('toggleBusViewBtn').addEventListener('click', function() {
+        toggleBusView();
+      });
+    }
+    
+    // 加載GeoJSON數據
+    function loadGeoJSONData() {
+      fetch('data/geojson.json')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('無法加載GeoJSON文件');
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log('GeoJSON數據加載成功');
+          geojsonData = data;
+          document.getElementById('loading').classList.add('hidden');
+          document.getElementById('mainContent').classList.remove('hidden');
+          // **在这里强制刷新地图尺寸**
+          map.resize();
+          // 顯示路線選擇器
+          displayRouteSelector();
+          
+          // 綁定按鈕事件
+          bindEvents();
+        })
+        .catch(error => {
+          document.getElementById('loading').textContent = '錯誤: ' + error.message;
+          console.error('加載數據失敗', error);
+        });
+    }
+    
+    // 切換巴士視圖
+    function toggleBusView() {
+      // 調用 routeBus.js 中的函數來切換巴士可見性
+      if (typeof window.toggleBusVisibility === 'function') {
+        // 檢查是否有活動的巴士圖層
+        if (!window.activeBusLayers || window.activeBusLayers.length === 0) {
+          alert('請先透過"添加巴士"按鈕添加巴士，然後再使用此功能切換巴士的顯示或隱藏。');
+          return;
+        }
+        
+        const isVisible = window.toggleBusVisibility();
+        
+        // 可選：根據可見性更新按鈕文字
+        const toggleBtn = document.getElementById('toggleBusViewBtn');
+        if (toggleBtn) {
+          toggleBtn.textContent = isVisible ? '隱藏巴士' : '顯示巴士';
+        }
+        
+        // 觸發地圖重繪
+        if (map) {
+          map.triggerRepaint();
+        }
+      } else {
+        console.error('toggleBusVisibility 函數未定義');
+        alert('巴士控制功能未正確載入，請重新載入頁面。');
+      }
+    }
+  </script>
+</body>
+</html> 

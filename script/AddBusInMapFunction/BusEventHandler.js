@@ -63,7 +63,7 @@ function findHoveredBus(mousePosition, cubeList, layer) {
  */
 function updatePopupAndCursor(hoveredBus, map, popup, routeElements) {
     if (hoveredBus) {
-        const direction = hoveredBus.userData.busDir === "0" ? "去程" : "回程";
+        const direction = hoveredBus.userData.busDir == "0" ? "去程" : "回程";
         popup
             .setLngLat(hoveredBus.userData.currentLngLat)
             .setHTML(`

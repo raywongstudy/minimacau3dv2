@@ -1,7 +1,12 @@
 // 99. Marker 功能 ============================================================
-async function AddMarker(map, MarkerLists = [113.54884000, 22.16185000]){
+export async function AddMarker(map, MarkerLists = [113.54884000, 22.16185000], color = 'blue'){
+    // 确保经纬度有效
+    if (isNaN(MarkerLists[0]) || isNaN(MarkerLists[1])) {
+        console.warn("尝试添加无效坐标标记：", MarkerLists);
+        return null;
+    }
     let popup = new mapboxgl.Popup().setText(`${MarkerLists[1]}, ${MarkerLists[0]} `).addTo(map);
-    new mapboxgl.Marker({ color: 'blue'}).setLngLat([MarkerLists[0], MarkerLists[1]]).addTo(map).setPopup(popup);
+    new mapboxgl.Marker({ color: color}).setLngLat([MarkerLists[0], MarkerLists[1]]).addTo(map).setPopup(popup);
 }
 
 function generateRandomNumber(minSize, maxSize) {

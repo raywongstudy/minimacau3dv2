@@ -9,9 +9,100 @@ import { AddMarkerData } from './tools/support.js';
 import { createPathLine, drawBusPathAndEndpoint } from './AddBusInMapFunction/PathVisualizationUtils.js';
 import { initializeBusEvents } from './AddBusInMapFunction/BusEventHandler.js';
 
+// 添加路线工具函数
+// 计算两点之间的距离（辅助函数）
+function getDistance(coord1, coord2) {
+    const [lng1, lat1] = coord1;
+    const [lng2, lat2] = coord2;
+    // 简单的二维平面距离，未考量地球曲率
+    return Math.sqrt(Math.pow(lng2 - lng1, 2) + Math.pow(lat2 - lat1, 2));
+}
 
+/**
+ * 在所有座標中，找出與指定點距離最近的索引
+ * @param {Array} coordinates - 座標點陣列，每個元素為 [經度, 緯度]
+ * @param {Array} targetPoint - 目標點座標 [經度, 緯度]
+ * @returns {number} 最近點的索引值
+ * @description 遍歷所有座標點，計算與目標點的距離，返回距離最短的座標點索引
+ */
+function findClosestIndex(coordinates, targetPoint) {
+    let minDist = Infinity; // 初始化最小距離為無限大
+    let closestIndex = -1;  // 初始化最近點索引為-1
+  
+    coordinates.forEach((coord, index) => {
+        const dist = getDistance(coord, targetPoint); // 計算當前座標點與目標點的距離
+        if (dist < minDist) { // 如果找到更近的點
+            minDist = dist; // 更新最小距離
+            closestIndex = index; // 更新最近點索引
+        }
+    });
+    return closestIndex; // 返回最近點的索引
+}
 
-// function base 巴士 初始化每个巴士的位置等数据 set position -> 根據busInfo 和 longitude, latitude 出巴士初始位置
+function findClosestPoint(coordinates, targetPoint) {
+    let minDist = Infinity;
+    let closestPoint = null;
+
+    // 遍歷路線的每個線段
+    for(let i = 0; i < coordinates.length - 1; i++) {
+        const p1 = coordinates[i];
+        const p2 = coordinates[i + 1];
+        
+        // 計算目標點到當前線段的投影點
+        const A = targetPoint[1] - p1[1]; // y差
+        const B = targetPoint[0] - p1[0]; // x差
+        const C = p2[1] - p1[1]; // 線段y差
+        const D = p2[0] - p1[0]; // 線段x差
+        
+        // 計算投影點位置比例
+        const dot = A * C + B * D;
+        const lenSq = C * C + D * D;
+        let param = -1;
+        
+        if(lenSq !== 0) {
+            param = dot / lenSq;
+        }
+        
+        let projPoint;
+        if(param < 0) {
+            projPoint = p1;
+        } else if(param > 1) {
+            projPoint = p2;
+        } else {
+            projPoint = [
+                p1[0] + param * D,
+                p1[1] + param * C
+            ];
+        }
+        
+        // 計算投影點到目標點的距離
+        const dist = getDistance(projPoint, targetPoint);
+        
+        if(dist < minDist) {
+            minDist = dist;
+            closestPoint = projPoint;
+        }
+    }
+    
+    return closestPoint;
+}
+
+// 计算路线总长度
+function calculateRouteLength(coordinates) {
+    if (!coordinates || coordinates.length < 2) {
+        return 0;
+    }
+    
+    let totalLength = 0;
+    
+    for (let i = 0; i < coordinates.length - 1; i++) {
+        totalLength += getDistance(coordinates[i], coordinates[i+1]);
+    }
+    
+    return totalLength;
+}
+
+// function base 巴士 初始化每个巴士的位置等数据 set position -> 根据busInfo 和 longitude, latitude 出巴士初始位置
 function initializeCubeData(cube, busInfo, longitude, latitude, dir, map) { // 由cube 和 busInfo 初始化巴士位置
     //用新巴士經緯 和 地圖中心經緯 計算巴士初始位置position
     const initialPosition = calculateDistanceInDirection(parseFloat(busInfo.longitude), parseFloat(busInfo.latitude), longitude, latitude); // 計算巴士初始位置
@@ -43,6 +134,21 @@ function initializeCubeData(cube, busInfo, longitude, latitude, dir, map) { // �
  */
 // 4. 巴士位置动画更新
 function renderUpdateCubePosition(cube, longitude, latitude) {
+    // 检查巴士是否已经完成100%的路线
+    if (cube.userData.currentRoutePercentage >= 100) {
+        // 如果巴士已完成100%路线，将其从场景中移除
+        if (cube.parent) {
+            // 直接从父场景中移除巴士
+            cube.parent.remove(cube);
+            
+            // 标记巴士已被移除，这样在渲染时可以将其从cube_list中过滤掉
+            cube.userData.removed = true;
+            
+            console.log("巴士已到达终点(100%)，已从场景中移除");
+        }
+        return;
+    }
+    
     // 使用calculateSourceFromDistance将Three.js坐标转换回经纬度
     if (cube) {
         const [currentLng, currentLat] = calculateCoordinateFromDistance(
@@ -285,8 +391,6 @@ function addNewCubeToLayer(existingCube, layer, newBusInfo, dir, sizeX, sizeY, s
         setCubeOrientation(newCube, existingPosition, targetPosition);
     }
 
-    
-    
     // 添加到场景
     layer.scene.add(newCube); // 将新创建的巴士模型添加到场景中
     layer.cube_list.push(newCube); // 将新巴士添加到图层的巴士列表中
@@ -302,49 +406,141 @@ function updateExistingCube(cube, newBusInfo, layer) {
     // 获取当前位置和目标位置的经纬度
     const currentLngLat = cube.userData.sourceLngLat; // 当前位置
     const targetLngLat = [parseFloat(newBusInfo.longitude), parseFloat(newBusInfo.latitude)]; // 目标位置
+    console.log("1. currentLngLat:", currentLngLat);
+    console.log("1. targetLngLat:", targetLngLat);
+    // 1. 根据巴士路线预设移动百分比
+    // 获取路线数据
+    let route_traffic_data_use = window.traffic_data; // 获取巴士路线数据
+    const bus_name = cube.name.split("_")[1].toString().padStart(5, '0'); // 获取巴士路线数据
+    const bus_dir = cube.name.split("_")[2]; // 获取巴士路线数据
 
-    // function for calc the deltaPosition and animationNumber
-    const [deltaPosition, animationNumber] = getPointsInTrafficData(layer, newBusInfo, cube.name.split("_")[1],cube.name.split("_")[2] , currentLngLat, targetLngLat);
+    let routeCoordinates = route_traffic_data_use.find(e => e.routeCode == bus_name && e.direction == bus_dir); // 获取巴士路线数据
+    
+    if (!routeCoordinates || !routeCoordinates.coordinate) {
+        console.error(`找不到路线数据: 巴士号=${bus_name}, 方向=${bus_dir}`);
+        // 标记这个巴士需要重新生成
+        cube.userData.needsRespawn = true;
+        return;
+    }
+    // 2. 计算真实移动百分比
+    // 获取当前路线
+    let currentRoutePercentage = 0;
+    let targetRoutePercentage = 0;
+
+    // 当前位置在路线中的百分比 - 优先使用已有的百分比
+    if (cube.userData.currentRoutePercentage !== undefined) {
+        currentRoutePercentage = cube.userData.currentRoutePercentage;
+    } else {
+        // 首次计算，查找**实际当前位置**在路线中的百分比
+        const currentIndex = findClosestIndex(routeCoordinates.coordinate, currentLngLat); // 使用 currentLngLat
+        // 计算从起点到当前位置的距离占总路线的百分比
+        const routeTotalLength = calculateRouteLength(routeCoordinates.coordinate); // 计算路线总长度
+        const currentLength = calculateRouteLength(routeCoordinates.coordinate.slice(0, currentIndex + 1)); // 计算当前位置到起点的距离
+
+        currentRoutePercentage = (currentLength / routeTotalLength) * 100; // 计算当前位置在路线中的百分比
+    }
+    console.log("currentRoutePercentage:", currentRoutePercentage);
+
+
+
+    // 目标位置在路线中的百分比 (基于API数据)
+    const targetIndex = findClosestIndex(routeCoordinates.coordinate, targetLngLat); // 计算目标位置在路线中的百分比
+    // 计算从起点到目标位置的距离占总路线的百分比
+    const routeTotalLength = calculateRouteLength(routeCoordinates.coordinate); // 计算路线总长度
+    const targetLength = calculateRouteLength(routeCoordinates.coordinate.slice(0, targetIndex + 1)); // 计算当前位置到起点的距离
+    targetRoutePercentage = (targetLength / routeTotalLength) * 100; // 计算目标位置在路线中的百分比
+    console.log("targetRoutePercentage:", targetRoutePercentage);
+    
+    // 计算移动百分比差值
+    let percentageDiff = targetRoutePercentage - currentRoutePercentage; // 计算目标位置和当前位置的百分比差值 可大可小 range -100% ~ 100%
+    console.log("!! targetRoutePercentage 和currentRoutePercentage 的percentageDiff差值%:", percentageDiff);
+    
+    // 修改：确保目标位置百分比始终大于当前位置百分比
+
+    // 3. 设置默认移动速度（每5秒移动路线的1%）
+    const defaultMovePercentage = 0.3; // 设置默认移动速度
+    let nextPercentage = 0
+    // 修改：确保目标位置百分比始终大于当前位置百分比
+    if (percentageDiff <= 0) {
+        // 设置一个默认增量，确保即使GPS位置在后面，巴士也会继续向前移动
+        targetRoutePercentage = currentRoutePercentage + defaultMovePercentage; // 現時% ＋ 0.1%
+        console.log("!! 新的的 targetRoutePercentage:", targetRoutePercentage);
+        nextPercentage = targetRoutePercentage;
+
+    }else{
+
+        // 动态调整移动速度
+        let movePercentage = defaultMovePercentage;
+
+        // -------- 简化：确保巴士始终向前移动 --------
+        // 确保 movePercentage 是正值，但根据 percentageDiff 动态调整
+        // 如果 percentageDiff 大，说明需要加速，如果小，说明需要减速，但始终保持最小前进速度
+        movePercentage = Math.max(0.1, Math.min(2.2, percentageDiff)); // 保证最小前进速度0.01%，最大前进速度2.2% range 0.01% ~ 2.2%
+        console.log("!! 最後移動百分比 movePercentage( 0.1% ~ 2.2%):", movePercentage); // 0.1% ~ 2.2%
+        // -------------------------------------------------
+
+        // 4. 计算下一个中间点
+        // 确保 nextPercentage = 現時% + 移動%
+        nextPercentage = currentRoutePercentage + movePercentage;
+
+    }
+    
+    console.log("!! 下一個目的地百分比 nextPercentage:", nextPercentage);
+    // 使用routeUtils中的getPointAtPercentage函数 作用：计算路线中指定百分比位置的坐标
+    let nextPoint;
+    if (window.routeUtils && window.routeUtils.getPointAtPercentage) {
+        // 确保 nextPercentage 不超过 100, 用Math.min(nextPercentage, 100) 限制百分比在0-100之间
+        nextPoint = window.routeUtils.getPointAtPercentage(routeCoordinates.coordinate, Math.min(nextPercentage, 100)); // 計算路線中指定百分比位置的坐标
+    } else {
+        // 如果window.routeUtils不存在，使用简化版的百分比计算
+        const index = Math.floor((routeCoordinates.coordinate.length - 1) * (Math.min(nextPercentage, 100) / 100));
+        nextPoint = routeCoordinates.coordinate[Math.min(index, routeCoordinates.coordinate.length - 1)];
+    }
+
+    // 5. 使用计算出的下一个点作为临时目标
+    const tempTargetLngLat = nextPoint;
+
+    // 6. 保存路线百分比信息
+    cube.userData.currentRoutePercentage = nextPercentage;
+    cube.userData.targetRoutePercentage = targetRoutePercentage; // 仍然保存API目标百分比，供参考(可用在未來一直不停加/cut speed)
+
+    // 计算动画参数
+    // deltaPosition 是巴士的移動位置，animationNumber 是巴士的移動時間
+    // -------- 修改：使用 currentLngLat 作为起点 --------
+    const [deltaPosition, animationNumber] = getPointsInTrafficData(
+        layer,
+        newBusInfo,
+        cube.name.split("_")[1],
+        cube.name.split("_")[2],
+        currentLngLat, // 使用当前实际位置作为起点
+        tempTargetLngLat // 使用计算出的下一个点作为临时目标
+    );
+    // -------------------------------------------------------
 
     // 获取巴士颜色
     let busColor = '#FFFFFF'; // 默认颜色
     if (cube.material && Array.isArray(cube.material)) {
         busColor = `#${cube.material[0].color.getHexString()}`;
-        
     } else if (cube.material && cube.material.color) {
         busColor = `#${cube.material.color.getHexString()}`;
     }
 
-    // 调用新的工具函数绘制路径和终点标记
-    // drawBusPathAndEndpoint(layer, currentLngLat, targetLngLat, busColor, cube.userData.busPlate);
-
-    // ------------------------------------------------------------
+    // -------------------------- 檢查巴士是否移動過遠 --------------------------
     const initialPosition = cube.userData.initialPosition;
-    
     const targetPosition = calculateDistanceInDirection(
-        parseFloat(newBusInfo.longitude),
-        parseFloat(newBusInfo.latitude),
+        parseFloat(tempTargetLngLat[0]),
+        parseFloat(tempTargetLngLat[1]),
         layer.longitude,
         layer.latitude
     );
 
-    // 检查新旧位置是否相同
-    const positionUnchanged = 
-        Math.abs(targetPosition[0] - initialPosition[0]) < 0.0001 &&
-        Math.abs(targetPosition[1] - initialPosition[1]) < 0.0001;
-    if (positionUnchanged) {
-        // 如果位置没有变化，不更新动画参数
-        console.log("位置未變化，保持原狀");
-        return;
-    }
-    
     // 計算兩點之間的距離
     const distanceX = Math.abs(targetPosition[0] - initialPosition[0]);//公式
     const distanceY = Math.abs(targetPosition[1] - initialPosition[1]);//公式
     const totalDistance = Math.sqrt(distanceX * distanceX + distanceY * distanceY); // 計算兩點之間的距離公式
 
     // 设置距离阈值（单位：米），超过这个距离就认为是异常跳变
-    const MAX_DISTANCE_THRESHOLD = 500; // 可以根据实际情况调整这个值
+    const MAX_DISTANCE_THRESHOLD = 1500; // 可以根据实际情况调整这个值
 
     if (totalDistance > MAX_DISTANCE_THRESHOLD) {
         console.log(`检测到巴士 ${cube.userData.busPlate} 位置跳变过大，距离: ${totalDistance}米，将重新生成巴士`);
@@ -352,25 +548,34 @@ function updateExistingCube(cube, newBusInfo, layer) {
         cube.userData.needsRespawn = true;
         return;
     }
+    console.log("巴士位置變化正常，保持原來方式");
     // ------------------------------------------------------------
-    
+
+    // 更新动画参数
     cube.userData.deltaPosition.push(...deltaPosition);
     cube.userData.animationNumber.push(...animationNumber);
     if(cube.userData.deltaPosition.length === 1){
         cube.userData.currentStep = 0;  // 重置当前步骤
     }
+    
+    console.log(`巴士 ${cube.userData.busPlate} 动画列表:`);
+    console.log(`- 当前步骤 currentStep: ${cube.userData.currentStep}`);
+    console.log(`- 剩余动画帧列表:`, cube.userData.animationNumber.slice(cube.userData.currentStep));
+    console.log(`- 下一动画增量:`, cube.userData.deltaPosition[cube.userData.currentStep]);
 
     // 更新其他用户数据
-    cube.userData.initialPosition = targetPosition; // 初始位置 //因為已完成使用initialPosition，所以需要更新成targetPosition, 其後targetPosition會變成新API數據
-    cube.userData.targetPosition = targetPosition; // 目标位置
-    console.log("targetPosition:",targetPosition);
-    cube.userData.sourceLngLat = targetLngLat; // 源位置
+    // -------- 修改：initialPosition 应为当前实际位置, sourceLngLat 应为新的临时目标 --------
+    cube.userData.initialPosition = targetPosition; // 更新 initialPosition 为本次动画的目标位置
+    cube.userData.targetPosition = targetPosition; // 目标位置 (本次动画的目标)
+    console.log("targetPosition (temp):", targetPosition);
+    cube.userData.sourceLngLat = tempTargetLngLat; // 更新 sourceLngLat 为本次动画的目标经纬度，作为下次计算的起点参考
     cube.userData.busSpeed = newBusInfo.speed; // 巴士速度
+    // -----------------------------------------------------------------------------------
 
-    // 初始化 previousPosition
+    // 初始化 previousPosition 
     cube.userData.previousPosition = { x: -initialPosition[1], y: initialPosition[0] };
 
-    console.log("API點擊function 更新後cube.userData:", cube.userData);
+    console.log("持续移动更新，（下一個目的地）巴士当前位置百分比:", nextPercentage, "（真實GPS）目标位置百分比:", targetRoutePercentage);
 }
 
 
@@ -494,6 +699,9 @@ function GenAllCustomLayer(map, route_elements, options = {}) {
             // 重置 Three.js 的内部状态
             this.renderer.state.reset();
 
+            // 过滤掉已被移除的巴士
+            this.cube_list = this.cube_list.filter(cube => !cube.userData.removed);
+
             // 更新巴士的位置
             this.cube_list.forEach(cube => renderUpdateCubePosition(cube, longitude, latitude));
         
@@ -548,9 +756,9 @@ export async function AddBusInMap(map, filter_bus_lists = [], bus_api_link) { //
     // 第一次更新一次巴士位置
     const response_bus_data = await fetch(bus_api_link).then(response => response.json()); // API獲取巴士數據
     customLayers.forEach(layer => layer.updateBusPositions(response_bus_data)); // for loop 所有巴士號圖層更新巴士位置
-   
     // 每隔5秒更新一次巴士位置
     setInterval(async () => {
+        console.log("每5秒更新一次巴士位置");
         const response_bus_data = await fetch(bus_api_link).then(response => response.json());
         customLayers.forEach(layer => layer.updateBusPositions(response_bus_data));
     }, 5000);

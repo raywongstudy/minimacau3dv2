@@ -30,13 +30,15 @@
     <!-- 加入Support 功能 -->
     <script src="./script/tools/support.js" type="module"></script> <!-- 通用function -->
     <!-- 加入網站功能 -->
-    <script src="./script/routeFunction.js"></script>
+    <script src="./script/AddrouteToMap.js"></script>
     <script src="./script/Add3DFunction.js"></script>
     <script src="./script/AddStationInfo.js"></script>
     <script src="./script/AddCameraData.js"></script>
     <script src="./script/GetUserGps.js"></script> 
     <script src="./script/AddBusInMap.js" type="module"></script> 
     <script src="./script/AddCarPlay.js"></script>   
+    <script src="./script/utils/routeUtils.js"></script>
+    <script src="./script/AddMapPoint.js" defer></script>
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -81,6 +83,10 @@
         <a id="search-route-button" class="panel_button">
             <i class="fa-solid fa-magnifying-glass"></i>
         </a>
+        <!-- Add Map Point Button -->
+        <a id="add-map-point-button" class="panel_button">
+            <i class="fa-solid fa-map-pin"></i>
+        </a>
     </div>
     
     <!-- 添加搜索模态框 -->
@@ -98,6 +104,61 @@
                 <div class="search-buttons">
                     <button id="search-confirm">搜尋</button>
                     <button id="search-cancel">關閉</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加地图点标记模态框 -->
+    <div id="map-point-modal" class="search-modal">
+        <div class="search-modal-content">
+            <div class="search-box">
+                <h3 style="color: #ffffff; margin-bottom: 15px;">選擇巴士路線</h3>
+                <div id="route-selector" class="route-selection"></div>
+                
+                <div class="percentage-controls">
+                    <h4 style="color: #ffffff; margin-top: 15px;">百分比位置標記</h4>
+                    <div class="percentage-slider-container" style="margin-top: 10px;">
+                        <label for="map-percentage" style="color: #ffffff;">百分比位置 (0-100):</label>
+                        <input type="range" id="map-percentage" min="0" max="100" value="50" class="percentage-slider" style="background: #363636;">
+                        <span id="percentage-value" style="color: #ffffff; margin-left: 10px;">50%</span>
+                    </div>
+                    <div class="point-buttons" style="margin-top: 15px;">
+                        <button id="add-marker-btn" style="padding: 8px 15px; background-color: #464646; color: #ffffff; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">添加標記</button>
+                        <button id="clear-markers-btn" style="padding: 8px 15px; background-color: #464646; color: #ffffff; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">清除標記</button>
+                        <button id="show-all-coords-btn" style="padding: 8px 15px; background-color: #464646; color: #ffffff; border: none; border-radius: 4px; cursor: pointer;">顯示完整路線</button>
+                    </div>
+                </div>
+                
+                <!-- 添加百分比範圍控制項 -->
+                <div class="percentage-range-controls" style="margin-top: 20px;">
+                    <h4 style="color: #ffffff; margin-top: 15px;">百分比範圍標記</h4>
+                    <div class="percentage-range-container" style="margin-top: 10px; display: flex; align-items: center;">
+                        <label for="map-start-percentage" style="color: #ffffff; margin-right: 5px;">起始:</label>
+                        <input type="number" id="map-start-percentage" min="0" max="100" value="0" style="width: 60px; padding: 5px; background: #363636; color: #ffffff; border: 1px solid #555; border-radius: 4px;">
+                        
+                        <label for="map-end-percentage" style="color: #ffffff; margin-left: 15px; margin-right: 5px;">結束:</label>
+                        <input type="number" id="map-end-percentage" min="0" max="100" value="10" style="width: 60px; padding: 5px; background: #363636; color: #ffffff; border: 1px solid #555; border-radius: 4px;">
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button id="get-percentage-range-btn" style="padding: 8px 15px; background-color: #464646; color: #ffffff; border: none; border-radius: 4px; cursor: pointer;">顯示範圍</button>
+                    </div>
+                </div>
+                
+                <!-- 添加百分比增量控制項 -->
+                <div class="increment-controls" style="margin-top: 20px;">
+                    <h4 style="color: #ffffff; margin-top: 15px;">百分比增量標記</h4>
+                    <div class="increment-container" style="margin-top: 10px; display: flex; align-items: center;">
+                        <label for="map-increment" style="color: #ffffff; margin-right: 5px;">增量值:</label>
+                        <input type="number" id="map-increment" min="1" max="50" value="5" style="width: 60px; padding: 5px; background: #363636; color: #ffffff; border: 1px solid #555; border-radius: 4px;">
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button id="get-increment-btn" style="padding: 8px 15px; background-color: #464646; color: #ffffff; border: none; border-radius: 4px; cursor: pointer;">顯示增量點</button>
+                    </div>
+                </div>
+                
+                <div class="search-buttons" style="margin-top: 20px; text-align: right;">
+                    <button id="map-point-close" style="padding: 8px 15px; background-color: #363636; color: #ffffff; border: none; border-radius: 4px; cursor: pointer;">關閉</button>
                 </div>
             </div>
         </div>
@@ -135,13 +196,15 @@
             Add3DFunction(map);
 
             // 2. Add Route to Map 
+            // 确保先加载路线
             window.trafficIds = addRouteToMap(map, traffic_data,[]); //addRouteToMap(map, traffic_data,["00N1A","00N1B"]); 
-            console.log("路線的數據->traffic_data:",traffic_data)
+            console.log("路線已加載，共" + (window.trafficIds ? window.trafficIds.length : 0) + "条路线");
+
+            // 初始化地图点标记功能已移至AddMapPoint.js中自动处理
+            
             // 3. Add all bus to the map 
-            // "https://api.minimacau3d.com/bus_location_coordinates.json" // 生產數據
-            // "https://api.minimacau3d.com/bus_location_coordinates_test.json" //測試數據
-            // AddBusInMap(map,["1","1A"], "http://127.0.0.1:5000/bus_data", traffic_data); // AddBusInMap(map,["1","2"]);
-            AddBusInMap(map,[], "https://api.minimacau3d.com/bus_location_data", traffic_data); // AddBusInMap(map,["1","2"]);            
+            AddBusInMap(map,[], "https://api.minimacau3d.com/bus_location_data", traffic_data); // AddBusInMap(map,["1","2"]);
+            
             // 4. Add car to the map for play
             // AddCarPlay(map);
 
