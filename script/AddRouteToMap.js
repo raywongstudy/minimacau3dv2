@@ -11,7 +11,7 @@ window.showMapButton = function(buttonId) {
 };
 
 // This function mainly for use the bus_corrdinates.js traffic_data to draw the route in the map
-function addRouteToMap(map, traffic_data, filter_traffic_lists=[]){
+function AddRouteToMap(map, traffic_data, filter_traffic_lists=[]){
     // 显示路线按钮
     window.showMapButton('toggle-route-button');
 
