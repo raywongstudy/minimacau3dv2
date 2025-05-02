@@ -197,7 +197,7 @@
 
             // 2. Add Route to Map 
             // 确保先加载路线
-            window.trafficIds = addRouteToMap(map, traffic_data,[]); //addRouteToMap(map, traffic_data,["00N1A","00N1B"]); 
+            window.trafficIds = AddRouteToMap(map, traffic_data,[]); //addRouteToMap(map, traffic_data,["00N1A","00N1B"]); 
             console.log("路線已加載，共" + (window.trafficIds ? window.trafficIds.length : 0) + "条路线");
 
             // 初始化地图点标记功能已移至AddMapPoint.js中自动处理
